@@ -3,8 +3,10 @@ const express = require('express')
 // Passport docs: http://www.passportjs.org/docs/
 const passport = require('passport')
 
-// pull in Mongoose model for uploads
-const upload = require('../models/upload')
+// pull in Mongoose model for Uploads
+const Upload = require('../models/Upload')
+
+const s3Upload = require('../../lib/s3-Upload')
 
 // this is a collection of methods that help us detect situations when we need
 // to throw a custom error
@@ -17,7 +19,7 @@ const handle404 = customErrors.handle404
 const requireOwnership = customErrors.requireOwnership
 
 // this is middleware that will remove blank fields from `req.body`, e.g.
-// { upload: { title: '', text: 'foo' } } -> { upload: { text: 'foo' } }
+// { Upload: { title: '', text: 'foo' } } -> { Upload: { text: 'foo' } }
 const removeBlanks = require('../../lib/remove_blank_fields')
 // passing this as a second argument to `router.<verb>` will make it
 // so that a token MUST be passed for that route to be available
@@ -28,40 +30,46 @@ const requireToken = passport.authenticate('bearer', { session: false })
 const router = express.Router()
 
 // INDEX
-// GET /uploads
+// GET /Uploads
 router.get('/uploads', requireToken, (req, res, next) => {
-  upload.find()
-    .then(uploads => {
-      // `uploads` will be an array of Mongoose documents
+  Upload.find()
+    .then(Uploads => {
+      // `Uploads` will be an array of Mongoose documents
       // we want to convert each one to a POJO, so we use `.map` to
       // apply `.toObject` to each one
-      return uploads.map(upload => upload.toObject())
+      return Uploads.map(Upload => Upload.toObject())
     })
-    // respond with status 200 and JSON of the uploads
-    .then(uploads => res.status(200).json({ uploads: uploads }))
+    // respond with status 200 and JSON of the Uploads
+    .then(Uploads => res.status(200).json({ Uploads: Uploads }))
     // if an error occurs, pass it to the handler
     .catch(next)
 })
 
 // SHOW
-// GET /uploads/5a7db6c74d55bc51bdf39793
-router.get('/uploads/:id', requireToken, (req, res, next) => {
+// GET /Uploads/5a7db6c74d55bc51bdf39793
+router.get('/Uploads/:id', requireToken, (req, res, next) => {
   // req.params.id will be set based on the `:id` in the route
-  upload.findById(req.params.id)
+  Upload.findById(req.params.id)
     .then(handle404)
-    // if `findById` is succesful, respond with 200 and "upload" JSON
-    .then(upload => res.status(200).json({ upload: upload.toObject() }))
+    // if `findById` is succesful, respond with 200 and "Upload" JSON
+    .then(Upload => res.status(200).json({ Upload: Upload.toObject() }))
     // if an error occurs, pass it to the handler
     .catch(next)
 })
 
 // CREATE
-// POST /uploads
-router.post('/uploads', requireToken, (req, res, next) => {
+// POST /Uploads
+router.post('/uploads', (req, res, next) => {
   // set owner of new upload to be current user
-  req.body.upload.owner = req.user.id
-
-  upload.create(req.body.upload)
+  // req.body.upload.owner = req.user.id
+  s3Upload('text-test.txt', 'Hello World!')
+    .then(data => {
+      return Upload.create({
+        fileName: data.key,
+        fileType: 'NA',
+        fileUrl: data.Location
+      })
+    })
     // respond to succesful `create` with status 201 and JSON of new "upload"
     .then(upload => {
       res.status(201).json({ upload: upload.toObject() })
@@ -73,21 +81,21 @@ router.post('/uploads', requireToken, (req, res, next) => {
 })
 
 // UPDATE
-// PATCH /uploads/5a7db6c74d55bc51bdf39793
-router.patch('/uploads/:id', requireToken, removeBlanks, (req, res, next) => {
+// PATCH /Uploads/5a7db6c74d55bc51bdf39793
+router.patch('/Uploads/:id', requireToken, removeBlanks, (req, res, next) => {
   // if the client attempts to change the `owner` property by including a new
   // owner, prevent that by deleting that key/value pair
-  delete req.body.upload.owner
+  delete req.body.Upload.owner
 
-  upload.findById(req.params.id)
+  Upload.findById(req.params.id)
     .then(handle404)
-    .then(upload => {
+    .then(Upload => {
       // pass the `req` object and the Mongoose record to `requireOwnership`
       // it will throw an error if the current user isn't the owner
-      requireOwnership(req, upload)
+      requireOwnership(req, Upload)
 
       // pass the result of Mongoose's `.update` to the next `.then`
-      return upload.updateOne(req.body.upload)
+      return Upload.updateOne(req.body.Upload)
     })
     // if that succeeded, return 204 and no JSON
     .then(() => res.sendStatus(204))
@@ -96,15 +104,15 @@ router.patch('/uploads/:id', requireToken, removeBlanks, (req, res, next) => {
 })
 
 // DESTROY
-// DELETE /uploads/5a7db6c74d55bc51bdf39793
-router.delete('/uploads/:id', requireToken, (req, res, next) => {
-  upload.findById(req.params.id)
+// DELETE /Uploads/5a7db6c74d55bc51bdf39793
+router.delete('/Uploads/:id', requireToken, (req, res, next) => {
+  Upload.findById(req.params.id)
     .then(handle404)
-    .then(upload => {
-      // throw an error if current user doesn't own `upload`
-      requireOwnership(req, upload)
-      // delete the upload ONLY IF the above didn't throw
-      upload.deleteOne()
+    .then(Upload => {
+      // throw an error if current user doesn't own `Upload`
+      requireOwnership(req, Upload)
+      // delete the Upload ONLY IF the above didn't throw
+      Upload.deleteOne()
     })
     // send back 204 and no content if the deletion succeeded
     .then(() => res.sendStatus(204))
